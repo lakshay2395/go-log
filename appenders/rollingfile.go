@@ -2,12 +2,14 @@ package appenders
 
 import (
 	"fmt"
-	"github.com/ian-kent/go-log/layout"
-	"github.com/ian-kent/go-log/levels"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/ian-kent/go-log/layout"
+	"github.com/ian-kent/go-log/levels"
 )
 
 type rollingFileAppender struct {
@@ -22,15 +24,20 @@ type rollingFileAppender struct {
 	writeMutex sync.Mutex
 
 	bytesWritten int64
+
+	backupFolder            string
+	customFileNameGenerator func() string
 }
 
-func RollingFile(filename string, append bool) *rollingFileAppender {
+func RollingFile(filename string, append bool, customBackupFolder string, customFileNameGenerator func() string) *rollingFileAppender {
 	a := &rollingFileAppender{
-		layout:         layout.Default(),
-		MaxFileSize:    104857600,
-		MaxBackupIndex: 1,
-		append:         append,
-		bytesWritten:   0,
+		layout:                  layout.Default(),
+		MaxFileSize:             104857600,
+		MaxBackupIndex:          1,
+		append:                  append,
+		bytesWritten:            0,
+		backupFolder:            customBackupFolder,
+		customFileNameGenerator: customFileNameGenerator,
 	}
 	err := a.SetFilename(filename)
 	if err != nil {
@@ -90,18 +97,36 @@ func (a *rollingFileAppender) SetFilename(filename string) error {
 func (a *rollingFileAppender) rotateFile() {
 	a.closeFile()
 
+	_, filename := filepath.Split(a.filename)
+	if a.customFileNameGenerator != nil {
+		filename = a.customFileNameGenerator()
+	}
+
 	lastFile := a.filename + "." + strconv.Itoa(a.MaxBackupIndex)
+	if a.backupFolder != "" {
+		lastFile = filepath.Join(a.backupFolder, filename, "."+strconv.Itoa(a.MaxBackupIndex))
+	}
 	if _, err := os.Stat(lastFile); err == nil {
 		os.Remove(lastFile)
 	}
 
 	for n := a.MaxBackupIndex; n > 0; n-- {
-		f1 := a.filename + "." + strconv.Itoa(n)
-		f2 := a.filename + "." + strconv.Itoa(n+1)
-		os.Rename(f1, f2)
+		if a.backupFolder != "" {
+			f1 := filepath.Join(a.backupFolder, filename, "."+strconv.Itoa(n))
+			f2 := filepath.Join(a.backupFolder, filename, "."+strconv.Itoa(n+1))
+			os.Rename(f1, f2)
+		} else {
+			f1 := a.filename + "." + strconv.Itoa(n)
+			f2 := a.filename + "." + strconv.Itoa(n+1)
+			os.Rename(f1, f2)
+		}
 	}
 
-	os.Rename(a.filename, a.filename+".1")
+	if a.backupFolder != "" {
+		os.Rename(a.filename, filepath.Join(a.backupFolder, filename, ".1"))
+	} else {
+		os.Rename(a.filename, a.filename+".1")
+	}
 
 	a.openFile()
 }
