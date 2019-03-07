@@ -1,10 +1,11 @@
 package appenders
 
 import (
-	"github.com/ian-kent/go-log/levels"
-	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"
+
+	"github.com/lakshay2395/go-log/levels"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestRollingFile(t *testing.T) {

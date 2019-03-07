@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ian-kent/go-log/levels"
+	"github.com/lakshay2395/go-log/levels"
 )
 
 // http://logging.apache.org/log4j/1.2/apidocs/org/apache/log4j/PatternLayout.html

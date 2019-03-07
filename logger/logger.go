@@ -5,9 +5,9 @@ import (
 	"os"
 	"strings"
 
-	"github.com/ian-kent/go-log/appenders"
-	"github.com/ian-kent/go-log/layout"
-	"github.com/ian-kent/go-log/levels"
+	"github.com/lakshay2395/go-log/appenders"
+	"github.com/lakshay2395/go-log/layout"
+	"github.com/lakshay2395/go-log/levels"
 )
 
 // Logger represents a logger

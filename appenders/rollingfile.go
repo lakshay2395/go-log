@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ian-kent/go-log/layout"
-	"github.com/ian-kent/go-log/levels"
+	"github.com/lakshay2395/go-log/layout"
+	"github.com/lakshay2395/go-log/levels"
 )
 
 type rollingFileAppender struct {

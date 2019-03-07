@@ -11,8 +11,8 @@ Satisfy the Appender interface to implement your own log appender.
 */
 
 import (
-	"github.com/ian-kent/go-log/layout"
-	"github.com/ian-kent/go-log/levels"
+	"github.com/lakshay2395/go-log/layout"
+	"github.com/lakshay2395/go-log/levels"
 )
 
 type Appender interface {

@@ -1,9 +1,10 @@
 package logger
 
 import (
-	"github.com/ian-kent/go-log/levels"
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/lakshay2395/go-log/levels"
+	"github.com/stretchr/testify/assert"
 )
 
 func TestNew(t *testing.T) {
