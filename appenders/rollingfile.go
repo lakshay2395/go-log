@@ -1,12 +1,22 @@
 package appenders
 
 import (
+	"bufio"
+	"bytes"
+	"crypto/md5"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/lakshay2395/go-log/layout"
 	"github.com/lakshay2395/go-log/levels"
@@ -27,6 +37,17 @@ type rollingFileAppender struct {
 
 	backupFolder            string
 	customFileNameGenerator func() string
+	LogHookURL              string
+	Client                  *http.Client
+	CustomHeaders           map[string]string
+}
+
+//LogPayload - to shipped to url
+type LogPayload struct {
+	Content        string    `json:"content"`
+	Checksum       string    `json:"checksum"`
+	Timestamp      time.Time `json:"startTimestamp"`
+	StartTimestamp time.Time `json:"endTimestamp"`
 }
 
 func RollingFile(filename string, append bool, customBackupFolder string, customFileNameGenerator func() string) *rollingFileAppender {
@@ -96,43 +117,76 @@ func (a *rollingFileAppender) SetFilename(filename string) error {
 
 func (a *rollingFileAppender) rotateFile() {
 	a.closeFile()
-
-	_, filename := filepath.Split(a.filename)
-	if a.customFileNameGenerator != nil {
-		filename = a.customFileNameGenerator()
-	}
-
-	lastFile := a.filename + "." + strconv.Itoa(a.MaxBackupIndex)
 	if a.backupFolder != "" {
-		lastFile = filepath.Join(a.backupFolder, filename, "."+strconv.Itoa(a.MaxBackupIndex))
-	}
-	if _, err := os.Stat(lastFile); err == nil {
-		os.Remove(lastFile)
-	}
-
-	for n := a.MaxBackupIndex; n > 0; n-- {
-		if a.backupFolder != "" {
-			f1 := filepath.Join(a.backupFolder, filename, "."+strconv.Itoa(n))
-			f2 := filepath.Join(a.backupFolder, filename, "."+strconv.Itoa(n+1))
-			os.Rename(f1, f2)
-		} else {
+		_, filename := filepath.Split(a.filename)
+		if a.customFileNameGenerator != nil {
+			filename = a.customFileNameGenerator()
+		}
+		lastFile := filepath.Join(a.backupFolder, filename+"."+strconv.Itoa(a.MaxBackupIndex))
+		pushLogToURL(lastFile, a.LogHookURL, a.Client, a.CustomHeaders)
+		if _, err := os.Stat(lastFile); err == nil {
+			os.Remove(lastFile)
+		}
+		for n := a.MaxBackupIndex; n > 0; n-- {
+			f1 := filepath.Join(a.backupFolder, filename+"."+strconv.Itoa(n))
+			f2 := filepath.Join(a.backupFolder, filename+"."+strconv.Itoa(n+1))
+			err := os.Rename(f1, f2)
+			for {
+				if strings.Contains(fmt.Sprintf("%s", err), "The process cannot access the file because it is being used by another process") {
+					err = os.Rename(f1, f2)
+					continue
+				}
+				break
+			}
+			pushLogToURL(f2, a.LogHookURL, a.Client, a.CustomHeaders)
+		}
+		err := os.Rename(a.filename, filepath.Join(a.backupFolder, filename+".1"))
+		for {
+			if strings.Contains(fmt.Sprintf("%s", err), "The process cannot access the file because it is being used by another process") {
+				err = os.Rename(a.filename, filepath.Join(a.backupFolder, filename+".1"))
+				continue
+			}
+			break
+		}
+		pushLogToURL(filepath.Join(a.backupFolder, filename+".1"), a.LogHookURL, a.Client, a.CustomHeaders)
+	} else {
+		lastFile := a.filename + "." + strconv.Itoa(a.MaxBackupIndex)
+		pushLogToURL(lastFile, a.LogHookURL, a.Client, a.CustomHeaders)
+		if _, err := os.Stat(lastFile); err == nil {
+			os.Remove(lastFile)
+		}
+		for n := a.MaxBackupIndex; n > 0; n-- {
 			f1 := a.filename + "." + strconv.Itoa(n)
 			f2 := a.filename + "." + strconv.Itoa(n+1)
-			os.Rename(f1, f2)
+			err := os.Rename(f1, f2)
+			for {
+				if strings.Contains(fmt.Sprintf("%s", err), "The process cannot access the file because it is being used by another process") {
+					err = os.Rename(f1, f2)
+					continue
+				}
+				break
+			}
+			pushLogToURL(f2, a.LogHookURL, a.Client, a.CustomHeaders)
+			os.Remove(f2)
 		}
+		err := os.Rename(a.filename, a.filename+".1")
+		for {
+			if strings.Contains(fmt.Sprintf("%s", err), "The process cannot access the file because it is being used by another process") {
+				err = os.Rename(a.filename, a.filename+".1")
+				continue
+			}
+			break
+		}
+		pushLogToURL(a.filename+".1", a.LogHookURL, a.Client, a.CustomHeaders)
 	}
-
-	if a.backupFolder != "" {
-		os.Rename(a.filename, filepath.Join(a.backupFolder, filename, ".1"))
-	} else {
-		os.Rename(a.filename, a.filename+".1")
-	}
-
 	a.openFile()
 }
 func (a *rollingFileAppender) closeFile() {
 	if a.file != nil {
-		a.file.Close()
+		err := a.file.Close()
+		if err != nil {
+			fmt.Println("ERROR = ", err)
+		}
 		a.file = nil
 	}
 }
@@ -144,4 +198,88 @@ func (a *rollingFileAppender) openFile() error {
 	f, err := os.OpenFile(a.filename, mode, 0666)
 	a.file = f
 	return err
+}
+
+func pushLogToURL(file string, url string, client *http.Client, customHeaders map[string]string) error {
+	if url == "" {
+		return nil
+	}
+	lines, err := readLinesFromFile(file)
+	if err != nil {
+		return err
+	}
+	fmt.Println("line = ", lines[0])
+	startTimestamp := strings.Split(strings.Split(strings.Split(lines[0], "[")[1], "]")[0], ".")[0]
+	layout := "2006-01-02 15:04:05"
+	st, err := time.Parse(layout, startTimestamp)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(file, os.O_RDONLY, 0666)
+	if err != nil {
+		return err
+	}
+	data, err := ioutil.ReadAll(f)
+	if err != nil {
+		return err
+	}
+	t := time.Now()
+	checksum, err := calculateMD5ChecksumForStream(f)
+	if err != nil {
+		return err
+	}
+	payload := LogPayload{
+		Content:        string(data),
+		Checksum:       checksum,
+		Timestamp:      t,
+		StartTimestamp: st,
+	}
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", url, bytes.NewReader(jsonData))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if customHeaders != nil {
+		for k, v := range customHeaders {
+			req.Header.Set(k, v)
+		}
+	}
+	res, err := client.Do(req)
+	if res.StatusCode != 200 {
+		return errors.New("request failed = " + string(res.StatusCode))
+	}
+	f.Close()
+	os.Remove(file)
+	return nil
+}
+
+func readLinesFromFile(path string) ([]string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+		break
+	}
+	return lines, scanner.Err()
+}
+
+func calculateMD5ChecksumForStream(body io.Reader) (string, error) {
+	var returnMD5String string
+	hash := md5.New()
+	if _, err := io.Copy(hash, body); err != nil {
+		return "", err
+	}
+	hashInBytes := hash.Sum(nil)[:16]
+	returnMD5String = hex.EncodeToString(hashInBytes)
+	return returnMD5String, nil
 }
