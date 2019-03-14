@@ -204,17 +204,6 @@ func pushLogToURL(file string, url string, client *http.Client, customHeaders ma
 	if url == "" {
 		return nil
 	}
-	lines, err := readLinesFromFile(file)
-	if err != nil {
-		return err
-	}
-	fmt.Println("line = ", lines[0])
-	startTimestamp := strings.Split(strings.Split(strings.Split(lines[0], "[")[1], "]")[0], ".")[0]
-	layout := "2006-01-02 15:04:05"
-	st, err := time.Parse(layout, startTimestamp)
-	if err != nil {
-		return err
-	}
 	f, err := os.OpenFile(file, os.O_RDONLY, 0666)
 	if err != nil {
 		return err
@@ -224,15 +213,11 @@ func pushLogToURL(file string, url string, client *http.Client, customHeaders ma
 		return err
 	}
 	t := time.Now()
-	checksum, err := calculateMD5ChecksumForStream(f)
-	if err != nil {
-		return err
-	}
 	payload := LogPayload{
 		Content:        string(data),
-		Checksum:       checksum,
+		Checksum:       "",
 		Timestamp:      t,
-		StartTimestamp: st,
+		StartTimestamp: t,
 	}
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
