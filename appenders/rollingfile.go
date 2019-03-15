@@ -205,6 +205,7 @@ func pushLogToURL(file string, url string, client *http.Client, customHeaders ma
 		return nil
 	}
 	f, err := os.OpenFile(file, os.O_RDONLY, 0666)
+	defer f.Close()
 	if err != nil {
 		return err
 	}
@@ -240,7 +241,6 @@ func pushLogToURL(file string, url string, client *http.Client, customHeaders ma
 	if res.StatusCode != 200 {
 		return errors.New("request failed = " + string(res.StatusCode))
 	}
-	f.Close()
 	os.Remove(file)
 	return nil
 }
