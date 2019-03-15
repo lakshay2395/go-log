@@ -234,6 +234,9 @@ func pushLogToURL(file string, url string, client *http.Client, customHeaders ma
 		}
 	}
 	res, err := client.Do(req)
+	if err != nil {
+		return errors.New(fmt.Sprintf("%s", err))
+	}
 	if res.StatusCode != 200 {
 		return errors.New("request failed = " + string(res.StatusCode))
 	}
