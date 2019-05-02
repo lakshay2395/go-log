@@ -83,9 +83,9 @@ func (a *rollingFileAppender) Write(level levels.LogLevel, message string, args 
 
 	a.writeMutex.Lock()
 	a.file.Write([]byte(m))
-
+	info, _ := a.file.Stat()
 	a.bytesWritten += int64(len(m))
-	if a.bytesWritten >= a.MaxFileSize {
+	if info.Size() >= a.MaxFileSize {
 		a.bytesWritten = 0
 		a.rotateFile()
 	}
